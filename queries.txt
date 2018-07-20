@@ -1,0 +1,141 @@
+//*** Nicolas Eldering and Yifan Chen (Team 3)
+//*** CSC 643 -- Big Data
+//*** 2/21/2018
+//*** Assignment 1
+
+Question (a) Find the total number of artists in the database.
+db.artists.count();
+
+-----------------------------------------------------------------------------------------------
+Question (b) Find URLs of artists whose names contain the word punk.
+var name_url_pair = db.artists.find({name:/.*punk.*/i},{name:1,url:1});
+
+var showNameURL = function(name_url_pair) {
+	while(name_url_pair.hasNext()){
+		var cursor=name_url_pair.next();
+		print("name: "+cursor.name+"    url: "+cursor.url);
+	}
+};
+
+showNameURL(name_url_pair);
+
+-----------------------------------------------------------------------------------------------
+Question (c) Find the most listened artist(s).
+db.user_artists.aggregate([{$group:{_id:"$artistID", total:{$sum:"$weight"}}}, {$sort:{total:-1}}, {$limit:1}, {$out:"mostPop"}]);
+var temp = db.mostPop.find().toArray();
+db.artists.find({id:temp[0]._id});
+
+-----------------------------------------------------------------------------------------------
+Question (d) Write a mapReducer to compute the top 10 popular artists.
+var map=function(){
+	emit({artistID:this.artistID},{weight:this.weight});
+};
+
+var reduce=function(key,values){
+	var weight=0;
+	values.forEach(function(v){
+		weight+=v['weight'];
+	});
+	return {weight:weight};
+};
+
+var weight_artist=db.user_artists.mapReduce(map,reduce,{out:"total"});
+
+var top10Artists = db[weight_artist.result].find().sort({"value.weight":-1}).limit(10);
+
+var showDetails = function(top10Artists) {
+	while(top10Artists.hasNext()){
+		var cursor=top10Artists.next();
+		var specificArtist=db.artists.find({id:cursor._id.artistID}).toArray();
+		print("id: "+specificArtist[0].id+"    name: "+specificArtist[0].name+"    url: "+specificArtist[0].url+"    pictureURL: "+specificArtist[0].pictureURL);
+	}
+};
+
+showDetails(top10Artists);
+
+------------------------------------------------------------------------------------------------
+Question (e) Write a mapReducer to find the least used tag.
+var map=function(){
+	emit({tagID:this.tagID},{count:1});	
+};
+var reduce=function(key,values){
+	var count=0;
+	values.forEach(function(v){
+		count+=v['count'];
+	});
+	return {count:count};
+};
+var tag_artist=db.user_taggedartists.mapReduce(map,reduce,{out:"total"});
+var leastTag = db[tag_artist.result].find().sort({"value.count":1}).limit(1).toArray();
+var leastUsedTag = db.tags.find({tagID:leastTag[0]._id.tagID}).toArray();
+print("tagID: "+leastUsedTag[0].tagID+"    tagValue:"+leastUsedTag[0].tagValue);
+
+------------------------------------------------------------------------------------------------
+Question (f) Write a mapReducer to compute the average number of tags used by each user for all artists.
+
+//calculate the number of each user's tags
+var map_tagsNum=function(){
+	emit({userID:this.userID},{count:1});	
+};
+
+var reduce_tagsNum=function(key,values){
+	var cnt=0;
+	values.forEach(function(v){
+		cnt+=v['count'];
+	});
+
+	return {count:cnt};
+};
+
+var each_user_tags_number=db.user_taggedartists.mapReduce(map_tagsNum,reduce_tagsNum,{out:"total"});
+
+var tags_number_array = db[each_user_tags_number.result].find().toArray();
+
+//calculate the number of artists of each user
+var map_artistsNum_temp=function(){
+	emit({userID:this.userID, artistID:this.artistID},{count:1});
+};
+
+var reduce_artistsNum_temp=function(key,values){
+	var cnt=0;
+	values.forEach(function(v){
+		cnt+=v['count'];
+	});
+
+	return {count:cnt};
+};
+
+var total_each_user_artistNum_temp=db.user_taggedartists.mapReduce(map_artistsNum_temp,reduce_artistsNum_temp,{out:"total"});
+
+var total_each_user_artistNum_temp_result=db[total_each_user_artistNum_temp.result];
+
+var map_artistsNum=function(){
+	emit({userID:this._id.userID},{count:1});	
+};
+
+var reduce_artistsNum=function(key,values){
+	var cnt=0;
+	values.forEach(function(v){
+		cnt+=v['count'];
+	});
+
+	return {count:cnt};
+};
+
+var total_each_user_artistNum=total_each_user_artistNum_temp_result.mapReduce(map_artistsNum,reduce_artistsNum,{out:"total"});
+
+var artist_number_array = db[total_each_user_artistNum.result].find().toArray();
+
+var storeEachUsertags = function(tags_number_array, artist_number_array) {
+	var averageTagsNumbers=[];
+	for (var i=0;i<tags_number_array.length;i++)
+		averageTagsNumbers[i]=(tags_number_array[i].value.count)/(artist_number_array[i].value.count);
+
+	return averageTagsNumbers;
+};
+
+var storeEachUsertagsArray = storeEachUsertags(tags_number_array, artist_number_array);
+
+for (var i=0;i<storeEachUsertagsArray.length;i++){
+	print("userID:"+tags_number_array[i]._id.userID +"    average:"+storeEachUsertagsArray[i]);
+}
